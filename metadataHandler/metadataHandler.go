@@ -12,7 +12,14 @@ import (
     "errors"
 )
 
-const metdataIntervalLength = 150
+//The interval to leave for each slot data
+const metdataIntervalLength = 200
+//All the status byte flags
+const (
+    SLOT_IN_USE                 = byte(0x01)
+    SLOT_BEING_MODIFIED         = byte(0x02)
+    SLOT_MARKED_FOR_DELETION    = byte(0x04)
+)
 
 type Metadata struct {
     data            []byte
@@ -60,9 +67,17 @@ func GetMetadata(path string, fileSize int64) (*Metadata, error) {
     return &metadata, nil
 }
 
+//The slot is written at the location slotNo*metdataIntervalLength
+//The first byte is the status byte. It is the ORed value of the SLOT_* constants (whichever applicable)
+//Rest of it is the slot data
 func (m Metadata) WriteSlot(s Slot, slotNo uint64) error {
     writeOffset := slotNo * metdataIntervalLength
-    writeSlice := m.data[writeOffset:writeOffset+metdataIntervalLength]
+    //TODO: MAKE THE OPERATION ATOMIC
+    //Set the status byte to show the slot is in use and is being modified
+    statusByte := SLOT_IN_USE | SLOT_BEING_MODIFIED
+    m.data[writeOffset] = statusByte
+
+    writeSlice := m.data[writeOffset+1:writeOffset+metdataIntervalLength]
     var buffer bytes.Buffer
     encoder := gob.NewEncoder(&buffer)
     err := encoder.Encode(s)
@@ -76,6 +91,10 @@ func (m Metadata) WriteSlot(s Slot, slotNo uint64) error {
         m.log.Errorf(fmt.Sprintf("Could not write the entire metadata. Could only write %v of %v bytes", n, tot))
         return errors.New(fmt.Sprintf("Could not write the entire metadata. Could only write %v of %v bytes", n, tot))
     }
+
+    //Set the status byte to show that the slot is in use only
+    statusByte = SLOT_IN_USE
+    m.data[writeOffset] = statusByte
     return nil
 }
 
@@ -95,7 +114,8 @@ func (m Metadata) CloseFile() error {
 
 func (m Metadata) GetSlot(slotno uint64) (Slot, error) {
     readOffset := slotno * metdataIntervalLength
-    readSlice := m.data[readOffset: readOffset+metdataIntervalLength]
+    //1st Byte is the status byte. Read from the next byte for slot data
+    readSlice := m.data[readOffset+1: readOffset+metdataIntervalLength]
     var decodedSlot Slot
     buffer := bytes.NewBuffer(readSlice)
     decoder := gob.NewDecoder(buffer)

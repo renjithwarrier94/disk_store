@@ -35,7 +35,7 @@ func TestWriteMetadataToFile(t *testing.T) {
     usecases := []uint64{2, 4, 6, 8, 10}
     slot := Slot{50000000, 150, 500000}
     for _,v := range usecases {
-        metadata, err := GetMetadata("test.ds", 2000)
+        metadata, err := GetMetadata("test.ds", 2500)
         if err != nil {
             t.Errorf("Error %v when creating metadata", err)
         }
@@ -62,7 +62,7 @@ func TestWritesAvalibaleAcrossFileDescriptors(t *testing.T) {
     usecases := []uint64{2, 4, 6, 8, 10}
     slot := Slot{50000000, 150, 500000}
     for _,v := range usecases {
-        metadata, err := GetMetadata("test.ds", 2000)
+        metadata, err := GetMetadata("test.ds", 2500)
         if err != nil {
             t.Errorf("Error %v when creating metadata", err)
         }

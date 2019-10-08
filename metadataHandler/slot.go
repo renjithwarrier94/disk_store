@@ -5,9 +5,9 @@ import (
     "encoding/gob"
 )
 //Each slot in the metadata file
-//The max sizeOfData of each struct is 64*2 + 1*3 = 131 bytes
-//Adding a buffer of 19bytes to describe variables and stuff, we can assume that each Slot
-//type will not be more than 150 bytes. So each slot will be in an offset that is a multiple of 150 bytes
+//The max sizeOfData of each struct is 64*3 = 192 bytes
+//Adding a buffer of 9 bytes to describe variables and stuff, we can assume that each Slot
+//type will not be more than 150 bytes. So each slot will be in an offset that is a multiple of 200 bytes
 type Slot struct {
     dataStoreSlot       uint64
     sizeOfData          uint64

@@ -33,7 +33,7 @@ func TestCreateFileOfGivenSize(t *testing.T) {
 
 func TestWriteMetadataToFile(t *testing.T) {
     usecases := []uint64{2, 4, 6, 8, 10}
-    slot := Slot{50000000, 150, true, true, true, 500000}
+    slot := Slot{50000000, 150, 500000}
     for _,v := range usecases {
         metadata, err := GetMetadata("test.ds", 2000)
         if err != nil {
@@ -48,14 +48,11 @@ func TestWriteMetadataToFile(t *testing.T) {
         if err != nil {
             t.Errorf("Error %v when trying to read the slot", err)
         }
-        if slot.startByteOffset != retrievedSlot.startByteOffset {
+        if slot.dataStoreSlot != retrievedSlot.dataStoreSlot {
             t.Errorf("The retrieved slot fields do not match")
         }
         if slot.sizeOfData != retrievedSlot.sizeOfData {
             t.Errorf("Size of data does not match")
-        }
-        if slot.markedForDeletion != retrievedSlot.markedForDeletion {
-            t.Errorf("Marked for deletion does not match")
         }
     }
     os.Remove("test.ds")
@@ -63,7 +60,7 @@ func TestWriteMetadataToFile(t *testing.T) {
 
 func TestWritesAvalibaleAcrossFileDescriptors(t *testing.T) {
     usecases := []uint64{2, 4, 6, 8, 10}
-    slot := Slot{50000000, 150, true, true, true, 500000}
+    slot := Slot{50000000, 150, 500000}
     for _,v := range usecases {
         metadata, err := GetMetadata("test.ds", 2000)
         if err != nil {
@@ -88,14 +85,11 @@ func TestWritesAvalibaleAcrossFileDescriptors(t *testing.T) {
         if err != nil {
             t.Errorf("Error %v when trying to read the slot", err)
         }
-        if slot.startByteOffset != retrievedSlot.startByteOffset {
+        if slot.dataStoreSlot != retrievedSlot.dataStoreSlot {
             t.Errorf("The retrieved slot fields do not match")
         }
         if slot.sizeOfData != retrievedSlot.sizeOfData {
             t.Errorf("Size of data does not match")
-        }
-        if slot.markedForDeletion != retrievedSlot.markedForDeletion {
-            t.Errorf("Marked for deletion does not match")
         }
     }
     os.Remove("test.ds")

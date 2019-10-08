@@ -1,4 +1,5 @@
-//Package that handles reading and writing into metadata file
+//This package deals with writing, reading, updating, deleting and providing related operations on the metadata file.
+//Each record in this file is of fixed length and is uniquely identified by its slot number
 package metadataHandler
 
 import (

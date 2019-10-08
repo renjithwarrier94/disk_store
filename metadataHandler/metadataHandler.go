@@ -1,91 +1,107 @@
-//This package deals with writing, reading, updating, deleting and providing related operations on the metadata file.
-//Each record in this file is of fixed length and is uniquely identified by its slot number
+//Package that handles reading and writing into metadata file
 package metadataHandler
 
 import (
-    "bytes"
+    "github.com/renjithwarrier94/disk_store/logger"
+    "os"
+    "fmt"
+    "syscall"
     "encoding/gob"
+    "bytes"
+    "errors"
 )
-//Each slot in the metadata file
-//The max sizeOfData of each struct is 64*2 + 1*3 = 131 bytes
-//Adding a buffer of 19bytes to describe variables and stuff, we can assume that each Slot
-//type will not be more than 150 bytes. So each slot will be in an offset that is a multiple of 150 bytes
-type Slot struct {
-    startByteOffset     uint64
-    sizeOfData          uint64
-    beingModified       bool
-    markedForDeletion   bool
-    isDeleted           bool
-    slotNo              uint64
+
+const metdataIntervalLength = 150
+
+type Metadata struct {
+    data            []byte
+    file            *os.File
+    currentSlot     *Slot
+    currentSlotNo   uint64
+    log             *logger.Logger
 }
 
-//Get an empty slot
-func GetSlot() *Slot {
-    return &Slot{}
+//Get the metadata type for the metadata file mapped to a byte slice
+func GetMetadata(path string, fileSize int64) (*Metadata, error) {
+    metadata := Metadata{log: logger.GetLogger(true)}
+    var fileUseSize int64
+    f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
+    if err != nil {
+        metadata.log.Errorf(fmt.Sprintf("Error %v when trying to open metadata file", err))
+        return nil, err
+    }
+    //Add File type to metadata
+    metadata.file = f
+    info, err := f.Stat()
+    if err != nil {
+        metadata.log.Errorf(fmt.Sprintf("Error %v when trying to get metadata file stats", err))
+        return nil, err
+    }
+    if info.Size() < fileSize {
+        err = f.Truncate(fileSize)
+        if err != nil {
+            metadata.log.Errorf(fmt.Sprintf("Error %v when trying to truncate metadata file", err))
+            return nil, err
+        }
+        fileUseSize = fileSize
+    } else {
+        fileUseSize = info.Size()
+    }
+
+    //Get memory mapped byte slice
+    d, err := syscall.Mmap(int(f.Fd()), 0, int(fileUseSize), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+    if err != nil {
+        metadata.log.Errorf(fmt.Sprintf("Error %v when creating mmap for metadata file", err))
+        return nil, err
+    }
+    //Add data to metadata object
+    metadata.data = d
+    return &metadata, nil
 }
 
-
-
-//Gob Encoder for Slot
-func (s Slot) GobEncode() ([]byte, error) {
-    var b bytes.Buffer
-    encoder := gob.NewEncoder(&b)
-    //Encode each of the members one by one
-    err := encoder.Encode(s.startByteOffset)
+func (m Metadata) WriteSlot(s Slot, slotNo uint64) error {
+    writeOffset := slotNo * metdataIntervalLength
+    writeSlice := m.data[writeOffset:writeOffset+metdataIntervalLength]
+    var buffer bytes.Buffer
+    encoder := gob.NewEncoder(&buffer)
+    err := encoder.Encode(s)
     if err != nil {
-        return nil, err
+        m.log.Errorf(fmt.Sprintf("Error %v when encoding slot", err))
+        return err
     }
-    err = encoder.Encode(s.sizeOfData)
-    if err != nil {
-        return nil, err
+    readSlice := buffer.Bytes()
+    n := copy(writeSlice, readSlice)
+    if tot := len(readSlice); n != tot {
+        m.log.Errorf(fmt.Sprintf("Could not write the entire metadata. Could only write %v of %v bytes", n, tot))
+        return errors.New(fmt.Sprintf("Could not write the entire metadata. Could only write %v of %v bytes", n, tot))
     }
-    err = encoder.Encode(s.beingModified)
-    if err != nil {
-        return nil, err
-    }
-    err = encoder.Encode(s.markedForDeletion)
-    if err != nil {
-        return nil, err
-    }
-    err = encoder.Encode(s.isDeleted)
-    if err != nil {
-        return nil, err
-    }
-    err = encoder.Encode(s.slotNo)
-    if err != nil {
-        return nil , err
-    }
-    return b.Bytes(), nil
+    return nil
 }
 
-//Gob Decoder for Slot
-func (s *Slot) GobDecode(b []byte) error {
-    r := bytes.NewBuffer(b)
-    decoder := gob.NewDecoder(r)
-    //Decode each of the members in Slot
-    err := decoder.Decode(&s.startByteOffset)
+func (m Metadata) CloseFile() error {
+    err := m.file.Sync()
     if err != nil {
+        m.log.Errorf(fmt.Sprintf("Error %v when syncing metadata file", err))
         return err
     }
-    err = decoder.Decode(&s.sizeOfData)
+    err = m.file.Close()
     if err != nil {
-        return err
-    }
-    err = decoder.Decode(&s.beingModified)
-    if err != nil {
-        return err
-    }
-    err = decoder.Decode(&s.markedForDeletion)
-    if err != nil {
-        return err
-    }
-    err = decoder.Decode(&s.isDeleted)
-    if err != nil {
-        return err
-    }
-    err = decoder.Decode(&s.slotNo)
-    if err != nil {
+        m.log.Errorf(fmt.Sprintf("Error %v when closing metadata file", err))
         return err
     }
     return nil
+}
+
+func (m Metadata) GetSlot(slotno uint64) (Slot, error) {
+    readOffset := slotno * metdataIntervalLength
+    readSlice := m.data[readOffset: readOffset+metdataIntervalLength]
+    var decodedSlot Slot
+    buffer := bytes.NewBuffer(readSlice)
+    decoder := gob.NewDecoder(buffer)
+    err := decoder.Decode(&decodedSlot)
+    if err != nil {
+        m.log.Errorf(fmt.Sprintf("Error %v when decoding slot", err))
+        return decodedSlot, err
+    }
+    return decodedSlot, nil
 }

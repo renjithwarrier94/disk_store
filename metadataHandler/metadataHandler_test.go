@@ -2,51 +2,101 @@ package metadataHandler
 
 import (
     "testing"
-    "encoding/gob"
-    "bytes"
+    "os"
 )
 
-func TestSerializationAndDeserialization(t *testing.T) {
-    usecases := []Slot{
-        Slot{0, 50, false, false, false, 1},
-        Slot{50, 100, false, false, false, 2},
-        Slot{150, 100, true, false, true, 3},
-        Slot{500, 45, false, true, true, 21},
-        Slot{50000000, 150, true, true, true, 500000},
-    }
-    for i, usecase := range usecases {
-        var buffer bytes.Buffer
-        encoder := gob.NewEncoder(&buffer)
-        err := encoder.Encode(usecase)
-        //b, err := usecase.GobEncode()
+func TestCreateFileOfGivenSize(t *testing.T) {
+    testSizes := []int64{75, 100, 200, 300}
+    for _, v := range testSizes {
+        metadata, err := GetMetadata("test.ds", v)
         if err != nil {
-            t.Errorf("Error when encoding usecase %v. Error: %v", i, err)
+            t.Errorf("Error %v when creating metadata", err)
         }
-        b := bytes.NewBuffer(buffer.Bytes())
-        var decodedSlot Slot
-        //err := decodedSlot.GobDecode(b)
-        decoder := gob.NewDecoder(b)
-        err = decoder.Decode(&decodedSlot)
+        err = metadata.CloseFile()
         if err != nil {
-            t.Errorf("Error when decoding usecase %v. Error: %v", i, err)
+            t.Errorf("Error %v when closing meatadata", err)
         }
-        if decodedSlot.startByteOffset != usecase.startByteOffset {
-            t.Errorf("Start byte offsets do not mach for usecase %v", i)
+        f, err := os.Open("test.ds")
+        if err != nil {
+            t.Errorf("Error %v when opening metadata file test", err)
         }
-        if decodedSlot.sizeOfData != usecase.sizeOfData {
-            t.Errorf("Size of data do not match for usecase %v", i)
+        fi, err := f.Stat()
+        if err != nil {
+            t.Errorf("Error %v when getting stats for metadata", err)
         }
-        if decodedSlot.beingModified != usecase.beingModified {
-            t.Errorf("Being modified do not match for usecase %v", i)
-        }
-        if decodedSlot.markedForDeletion != usecase.markedForDeletion {
-            t.Errorf("Marked for deletion do not match for usecase %v", i)
-        }
-        if decodedSlot.isDeleted != usecase.isDeleted {
-            t.Errorf("Is deleted do not match for usecase %v", i)
-        }
-        if decodedSlot.slotNo != usecase.slotNo {
-            t.Errorf("Slot numbers do not match for usecase %v", i)
+        if fi.Size() != v {
+            t.Errorf("Sizes do not match!")
         }
     }
+    os.Remove("test.ds")
+}
+
+func TestWriteMetadataToFile(t *testing.T) {
+    usecases := []uint64{2, 4, 6, 8, 10}
+    slot := Slot{50000000, 150, true, true, true, 500000}
+    for _,v := range usecases {
+        metadata, err := GetMetadata("test.ds", 2000)
+        if err != nil {
+            t.Errorf("Error %v when creating metadata", err)
+        }
+        err = metadata.WriteSlot(slot, v)
+        if err != nil {
+            t.Errorf("Error %v when writing a slot to metadata", err)
+        }
+        //Read the slot and compare the fields
+        retrievedSlot, err := metadata.GetSlot(v)
+        if err != nil {
+            t.Errorf("Error %v when trying to read the slot", err)
+        }
+        if slot.startByteOffset != retrievedSlot.startByteOffset {
+            t.Errorf("The retrieved slot fields do not match")
+        }
+        if slot.sizeOfData != retrievedSlot.sizeOfData {
+            t.Errorf("Size of data does not match")
+        }
+        if slot.markedForDeletion != retrievedSlot.markedForDeletion {
+            t.Errorf("Marked for deletion does not match")
+        }
+    }
+    os.Remove("test.ds")
+}
+
+func TestWritesAvalibaleAcrossFileDescriptors(t *testing.T) {
+    usecases := []uint64{2, 4, 6, 8, 10}
+    slot := Slot{50000000, 150, true, true, true, 500000}
+    for _,v := range usecases {
+        metadata, err := GetMetadata("test.ds", 2000)
+        if err != nil {
+            t.Errorf("Error %v when creating metadata", err)
+        }
+        err = metadata.WriteSlot(slot, v)
+        if err != nil {
+            t.Errorf("Error %v when writing a slot to metadata", err)
+        }
+        //Close metadata
+        err = metadata.CloseFile()
+        if err != nil {
+            t.Errorf("Error %v when closing metadata", err)
+        }
+        //Get metadata again
+        metadata, err = GetMetadata("test.ds", 2000)
+        if err != nil {
+            t.Errorf("Error %v when opening metadata again", err)
+        }
+        //Read the slot and compare the fields
+        retrievedSlot, err := metadata.GetSlot(v)
+        if err != nil {
+            t.Errorf("Error %v when trying to read the slot", err)
+        }
+        if slot.startByteOffset != retrievedSlot.startByteOffset {
+            t.Errorf("The retrieved slot fields do not match")
+        }
+        if slot.sizeOfData != retrievedSlot.sizeOfData {
+            t.Errorf("Size of data does not match")
+        }
+        if slot.markedForDeletion != retrievedSlot.markedForDeletion {
+            t.Errorf("Marked for deletion does not match")
+        }
+    }
+    os.Remove("test.ds")
 }

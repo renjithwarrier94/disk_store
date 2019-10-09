@@ -10,6 +10,7 @@ import (
     "encoding/gob"
     "bytes"
     "errors"
+    "math"
 )
 
 //The interval to leave for each slot data
@@ -30,9 +31,12 @@ type Metadata struct {
 }
 
 //Get the metadata type for the metadata file mapped to a byte slice
+//Pass the path where the data files need to live/exists and the size in bytes
+//If the size is less than 4096 bytes (4 KB), 4096 is used
+//If it is more than 4096, the nearest multiple of 4096 ie ceil(fileSize/4096)*4096 is used
 func GetMetadata(path string, fileSize int64) (*Metadata, error) {
     metadata := Metadata{log: logger.GetLogger(true)}
-    var fileUseSize int64
+    fileSize = int64(math.Ceil(float64(fileSize)/4096.0) * 4096)
     f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
     if err != nil {
         metadata.log.Errorf(fmt.Sprintf("Error %v when trying to open metadata file", err))
@@ -51,13 +55,12 @@ func GetMetadata(path string, fileSize int64) (*Metadata, error) {
             metadata.log.Errorf(fmt.Sprintf("Error %v when trying to truncate metadata file", err))
             return nil, err
         }
-        fileUseSize = fileSize
     } else {
-        fileUseSize = info.Size()
+        fileSize = info.Size()
     }
 
     //Get memory mapped byte slice
-    d, err := syscall.Mmap(int(f.Fd()), 0, int(fileUseSize), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+    d, err := syscall.Mmap(int(f.Fd()), 0, int(fileSize), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
     if err != nil {
         metadata.log.Errorf(fmt.Sprintf("Error %v when creating mmap for metadata file", err))
         return nil, err

@@ -6,8 +6,9 @@ import (
 )
 
 func TestCreateFileOfGivenSize(t *testing.T) {
-    testSizes := []int64{75, 100, 200, 300}
-    for _, v := range testSizes {
+    testSizes := []int64{75, 4097, 8193, 20000}
+    expectedSizes := []int64{4096, 8192, 12288, 20480}
+    for i, v := range testSizes {
         metadata, err := GetMetadata("test.ds", v)
         if err != nil {
             t.Errorf("Error %v when creating metadata", err)
@@ -24,7 +25,7 @@ func TestCreateFileOfGivenSize(t *testing.T) {
         if err != nil {
             t.Errorf("Error %v when getting stats for metadata", err)
         }
-        if fi.Size() != v {
+        if fi.Size() != expectedSizes[i] {
             t.Errorf("Sizes do not match!")
         }
     }

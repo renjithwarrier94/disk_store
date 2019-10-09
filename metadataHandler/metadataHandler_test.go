@@ -8,8 +8,13 @@ import (
 func TestCreateFileOfGivenSize(t *testing.T) {
     testSizes := []int64{75, 4097, 8193, 20000}
     expectedSizes := []int64{4096, 8192, 12288, 20480}
+    //Create a directory
+    err := os.Mkdir("test", 0777)
+    if err != nil {
+        t.Errorf("Could not create a test directory. %v", err)
+    }
     for i, v := range testSizes {
-        metadata, err := GetMetadata("test.ds", v)
+        metadata, err := GetMetadata("test/", v)
         if err != nil {
             t.Errorf("Error %v when creating metadata", err)
         }
@@ -17,7 +22,7 @@ func TestCreateFileOfGivenSize(t *testing.T) {
         if err != nil {
             t.Errorf("Error %v when closing meatadata", err)
         }
-        f, err := os.Open("test.ds")
+        f, err := os.Open("test/" + metadataFileName)
         if err != nil {
             t.Errorf("Error %v when opening metadata file test", err)
         }
@@ -25,18 +30,22 @@ func TestCreateFileOfGivenSize(t *testing.T) {
         if err != nil {
             t.Errorf("Error %v when getting stats for metadata", err)
         }
-        if fi.Size() != expectedSizes[i] {
-            t.Errorf("Sizes do not match!")
+        if metadataSize := fi.Size(); metadataSize != expectedSizes[i] {
+            t.Errorf("Sizes  of metadata file do not match. Expected %v but got %v", expectedSizes[i], metadataSize)
         }
     }
-    os.Remove("test.ds")
+    os.RemoveAll("test")
 }
 
 func TestWriteMetadataToFile(t *testing.T) {
     usecases := []uint64{2, 4, 6, 8, 10}
     slot := Slot{50000000, 150, 500000}
+    err := os.Mkdir("test", 0777)
+    if err != nil {
+        t.Errorf("Could not create a test directory. %v", err)
+    }
     for _,v := range usecases {
-        metadata, err := GetMetadata("test.ds", 2500)
+        metadata, err := GetMetadata("test/", 2500)
         if err != nil {
             t.Errorf("Error %v when creating metadata", err)
         }
@@ -56,14 +65,18 @@ func TestWriteMetadataToFile(t *testing.T) {
             t.Errorf("Size of data does not match")
         }
     }
-    os.Remove("test.ds")
+    os.RemoveAll("test")
 }
 
 func TestWritesAvalibaleAcrossFileDescriptors(t *testing.T) {
     usecases := []uint64{2, 4, 6, 8, 10}
     slot := Slot{50000000, 150, 500000}
+    err := os.Mkdir("test", 0777)
+    if err != nil {
+        t.Errorf("Could not create a test directory. %v", err)
+    }
     for _,v := range usecases {
-        metadata, err := GetMetadata("test.ds", 2500)
+        metadata, err := GetMetadata("test/", 2500)
         if err != nil {
             t.Errorf("Error %v when creating metadata", err)
         }
@@ -77,7 +90,7 @@ func TestWritesAvalibaleAcrossFileDescriptors(t *testing.T) {
             t.Errorf("Error %v when closing metadata", err)
         }
         //Get metadata again
-        metadata, err = GetMetadata("test.ds", 2000)
+        metadata, err = GetMetadata("test/", 2000)
         if err != nil {
             t.Errorf("Error %v when opening metadata again", err)
         }
@@ -93,5 +106,5 @@ func TestWritesAvalibaleAcrossFileDescriptors(t *testing.T) {
             t.Errorf("Size of data does not match")
         }
     }
-    os.Remove("test.ds")
+    os.RemoveAll("test")
 }

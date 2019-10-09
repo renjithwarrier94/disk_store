@@ -15,6 +15,8 @@ import (
 
 //The interval to leave for each slot data
 const metdataIntervalLength = 200
+//The name of the metadata file. Its stored in the given path + fileName
+const metadataFileName = "metadata.ds"
 //All the status byte flags
 const (
     SLOT_IN_USE                 = byte(0x01)
@@ -37,7 +39,7 @@ type Metadata struct {
 func GetMetadata(path string, fileSize int64) (*Metadata, error) {
     metadata := Metadata{log: logger.GetLogger(true)}
     fileSize = int64(math.Ceil(float64(fileSize)/4096.0) * 4096)
-    f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
+    f, err := os.OpenFile(path + metadataFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
     if err != nil {
         metadata.log.Errorf(fmt.Sprintf("Error %v when trying to open metadata file", err))
         return nil, err

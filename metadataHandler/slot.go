@@ -14,6 +14,13 @@ type Slot struct {
     slotNo              uint64
 }
 
+//Set data in a slot
+func (s *Slot) SetData(dsSlot uint64, sod uint64, sno uint64) {
+    s.dataStoreSlot = dsSlot
+    s.sizeOfData = sod
+    s.slotNo = sno
+}
+
 //Gob Encoder for Slot
 func (s Slot) GobEncode() ([]byte, error) {
     var b bytes.Buffer

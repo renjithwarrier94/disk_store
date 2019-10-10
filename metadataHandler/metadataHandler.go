@@ -45,20 +45,17 @@ func GetMetadata(path string, fileSize int64) (*Metadata, error) {
     fileSize = int64(math.Ceil(float64(fileSize)/4096.0) * 4096)
     f, err := os.OpenFile(path + metadataFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
     if err != nil {
-        metadata.log.Errorf(fmt.Sprintf("Error %v when trying to open metadata file", err))
         return nil, err
     }
     //Add File type to metadata
     metadata.file = f
     info, err := f.Stat()
     if err != nil {
-        metadata.log.Errorf(fmt.Sprintf("Error %v when trying to get metadata file stats", err))
         return nil, err
     }
     if info.Size() < fileSize {
         err = f.Truncate(fileSize)
         if err != nil {
-            metadata.log.Errorf(fmt.Sprintf("Error %v when trying to truncate metadata file", err))
             return nil, err
         }
     } else {
@@ -68,7 +65,6 @@ func GetMetadata(path string, fileSize int64) (*Metadata, error) {
     //Get memory mapped byte slice
     d, err := syscall.Mmap(int(f.Fd()), 0, int(fileSize), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
     if err != nil {
-        metadata.log.Errorf(fmt.Sprintf("Error %v when creating mmap for metadata file", err))
         return nil, err
     }
     //Add data to metadata object
@@ -96,13 +92,11 @@ func (m Metadata) WriteSlot(s Slot, slotNo uint64) error {
     encoder := gob.NewEncoder(&buffer)
     err := encoder.Encode(s)
     if err != nil {
-        m.log.Errorf(fmt.Sprintf("Error %v when encoding slot", err))
         return err
     }
     readSlice := buffer.Bytes()
     n := copy(writeSlice, readSlice)
     if tot := len(readSlice); n != tot {
-        m.log.Errorf(fmt.Sprintf("Could not write the entire metadata. Could only write %v of %v bytes", n, tot))
         return errors.New(fmt.Sprintf("Could not write the entire metadata. Could only write %v of %v bytes", n, tot))
     }
 
@@ -115,12 +109,10 @@ func (m Metadata) WriteSlot(s Slot, slotNo uint64) error {
 func (m Metadata) CloseFile() error {
     err := m.file.Sync()
     if err != nil {
-        m.log.Errorf(fmt.Sprintf("Error %v when syncing metadata file", err))
         return err
     }
     err = m.file.Close()
     if err != nil {
-        m.log.Errorf(fmt.Sprintf("Error %v when closing metadata file", err))
         return err
     }
     return nil
@@ -135,7 +127,6 @@ func (m Metadata) GetSlot(slotno uint64) (Slot, error) {
     decoder := gob.NewDecoder(buffer)
     err := decoder.Decode(&decodedSlot)
     if err != nil {
-        m.log.Errorf(fmt.Sprintf("Error %v when decoding slot", err))
         return decodedSlot, err
     }
     return decodedSlot, nil
@@ -151,35 +142,29 @@ func (metadata *Metadata) createMetadataLookupFile(path string, metadata_length 
         //If it doesn't, create one
         f, err = os.OpenFile(path + metadataLookupFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
         if err != nil {
-            metadata.log.Errorf("Error when trying to create metadata lookup file")
             return err
         }
         //Set the size to the min required size
         new_size = int64(math.Ceil(float64(metadata_length)/float64(metdataIntervalLength)))
- 
         err = f.Truncate(new_size)
         if err != nil {
-            metadata.log.Errorf("Error when trying to set the size of metadata lookup file")
             return err
         }
     } else {
         //If it does, open it
         f, err = os.OpenFile(path + metadataLookupFileName, os.O_RDWR|os.O_APPEND, 0777)
         if err != nil {
-            metadata.log.Errorf("Error when trying to open metadata lookup file")
             return err
         }
         //Check the size of the lookup file, and if it is less than the required value, extend it
         info, err := f.Stat()
         old_size = info.Size()
         if err != nil {
-            metadata.log.Errorf("Error when fetching details of metadata lookup file")
             return err
         }
         if min_req_size := int64(math.Ceil(float64(metadata_length)/float64(metdataIntervalLength))); info.Size() < min_req_size {
             err = f.Truncate(min_req_size)
             if err != nil {
-                metadata.log.Errorf("Error when trying to resize metadata lookup file")
                 return err
             }
             new_size = min_req_size
@@ -191,7 +176,6 @@ func (metadata *Metadata) createMetadataLookupFile(path string, metadata_length 
     //Create mmap
     d, err := syscall.Mmap(int(f.Fd()), 0, int(new_size), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
     if err != nil {
-        metadata.log.Errorf(fmt.Sprintf("Error when trying to map metadata lookup. %v", err))
         return err
     }
     metadata.lookup = d

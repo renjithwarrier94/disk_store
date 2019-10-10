@@ -17,6 +17,8 @@ import (
 const metdataIntervalLength = 200
 //The name of the metadata file. Its stored in the given path + fileName
 const metadataFileName = "metadata.ds"
+//The name of the metadata lookup file.
+const metadataLookupFileName = "metadata_lookup.ds"
 //All the status byte flags
 const (
     SLOT_IN_USE                 = byte(0x01)
@@ -29,6 +31,8 @@ type Metadata struct {
     file            *os.File
     currentSlot     *Slot
     currentSlotNo   uint64
+    lookup          []byte
+    lookup_file     *os.File
     log             *logger.Logger
 }
 
@@ -69,6 +73,11 @@ func GetMetadata(path string, fileSize int64) (*Metadata, error) {
     }
     //Add data to metadata object
     metadata.data = d
+    //Create/Open the lookup file
+    err = metadata.createMetadataLookupFile(path, fileSize)
+    if err != nil {
+        return nil, err
+    }
     return &metadata, nil
 }
 
@@ -130,4 +139,65 @@ func (m Metadata) GetSlot(slotno uint64) (Slot, error) {
         return decodedSlot, err
     }
     return decodedSlot, nil
+}
+
+//Create/open a metadata lookup file
+func (metadata *Metadata) createMetadataLookupFile(path string, metadata_length int64) error {
+    var f *os.File
+    //To fill up the lookup file with empty bytes, we need the old and new size. For new file, old_size is 0
+    var old_size, new_size int64
+    //Check if the file exists
+    if _, err := os.Stat(path + metadataLookupFileName); os.IsNotExist(err) {
+        //If it doesn't, create one
+        f, err = os.OpenFile(path + metadataLookupFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
+        if err != nil {
+            metadata.log.Errorf("Error when trying to create metadata lookup file")
+            return err
+        }
+        //Set the size to the min required size
+        new_size = int64(math.Ceil(float64(metadata_length)/float64(metdataIntervalLength)))
+ 
+        err = f.Truncate(new_size)
+        if err != nil {
+            metadata.log.Errorf("Error when trying to set the size of metadata lookup file")
+            return err
+        }
+    } else {
+        //If it does, open it
+        f, err = os.OpenFile(path + metadataLookupFileName, os.O_RDWR|os.O_APPEND, 0777)
+        if err != nil {
+            metadata.log.Errorf("Error when trying to open metadata lookup file")
+            return err
+        }
+        //Check the size of the lookup file, and if it is less than the required value, extend it
+        info, err := f.Stat()
+        old_size = info.Size()
+        if err != nil {
+            metadata.log.Errorf("Error when fetching details of metadata lookup file")
+            return err
+        }
+        if min_req_size := int64(math.Ceil(float64(metadata_length)/float64(metdataIntervalLength))); info.Size() < min_req_size {
+            err = f.Truncate(min_req_size)
+            if err != nil {
+                metadata.log.Errorf("Error when trying to resize metadata lookup file")
+                return err
+            }
+            new_size = min_req_size
+        } else {
+            new_size = info.Size()
+        }
+    }
+    metadata.lookup_file = f
+    //Create mmap
+    d, err := syscall.Mmap(int(f.Fd()), 0, int(new_size), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+    if err != nil {
+        metadata.log.Errorf(fmt.Sprintf("Error when trying to map metadata lookup. %v", err))
+        return err
+    }
+    metadata.lookup = d
+    //Fill up remaining bytes with 0
+    for i:=old_size; i<new_size; i++ {
+        metadata.lookup[i] = byte(0x00)
+    }
+    return nil
 }

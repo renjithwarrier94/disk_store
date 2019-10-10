@@ -48,22 +48,23 @@ func setColoredLabelFormats(l *Logger) {
 	l.errorLabel = fmt.Sprintf(colorFormat, "31", "ERROR")
 }
 
-//Raise an Info log message
-func (l *Logger) Infof(message string) {
-    l.logger.Printf(l.infoLabel + message)
+//Each log takes in a message (format string) and arguments to fill it up
+//Raise an Info log message.
+func (l *Logger) Infof(message string, v ...interface{}) {
+    l.logger.Printf(l.infoLabel + message, v...)
 }
 
 //Raise a Warn log message
-func (l *Logger) Warnf(message string) {
-    l.logger.Printf(l.warnLabel + message)
+func (l *Logger) Warnf(message string, v ...interface{}) {
+    l.logger.Printf(l.warnLabel + message, v...)
 }
 
 //Raise a Debug log message
-func (l *Logger) Debugf(message string) {
-    l.logger.Printf(l.debugLabel + message)
+func (l *Logger) Debugf(message string, v ...interface{}) {
+    l.logger.Printf(l.debugLabel + message, v...)
 }
 
 //Raise an Error log message
-func (l *Logger) Errorf(message string) {
-    l.logger.Printf(l.errorLabel + message)
+func (l *Logger) Errorf(message string, v ...interface{}) {
+    l.logger.Printf(l.errorLabel + message, v...)
 }

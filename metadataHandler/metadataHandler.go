@@ -106,7 +106,8 @@ func (m Metadata) WriteSlot(s Slot, slotNo uint64) error {
     return nil
 }
 
-func (m Metadata) CloseFile() error {
+func (m *Metadata) CloseFile() error {
+    //Close metadata file
     err := m.file.Sync()
     if err != nil {
         return errors.Wrap(err, "Could not sync metadata file before closing")
@@ -114,6 +115,15 @@ func (m Metadata) CloseFile() error {
     err = m.file.Close()
     if err != nil {
         return errors.Wrap(err, "Could not close metadata file")
+    }
+    //Close metadata lookup file
+    err = m.lookup_file.Sync()
+    if err != nil {
+        return errors.Wrap(err, "Could not sync metadata lookup file before closing")
+    }
+    err = m.lookup_file.Close()
+    if err != nil {
+        return errors.Wrap(err, "Could not close metadata lookup file")
     }
     return nil
 }

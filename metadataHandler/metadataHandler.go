@@ -9,7 +9,8 @@ import (
     "syscall"
     "encoding/gob"
     "bytes"
-    "errors"
+    //"errors"
+    "github.com/pkg/errors"
     "math"
 )
 
@@ -97,7 +98,7 @@ func (m Metadata) WriteSlot(s Slot, slotNo uint64) error {
     readSlice := buffer.Bytes()
     n := copy(writeSlice, readSlice)
     if tot := len(readSlice); n != tot {
-        return errors.New(fmt.Sprintf("Could not write the entire metadata. Could only write %v of %v bytes", n, tot))
+        return errors.Errorf(fmt.Sprintf("Could not write the entire metadata. Could only write %v of %v bytes", n, tot))
     }
 
     //Set the status byte to show that the slot is in use only

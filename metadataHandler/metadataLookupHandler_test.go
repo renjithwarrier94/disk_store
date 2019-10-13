@@ -11,32 +11,36 @@ func TestCreationOfMetadataLookupFile(t *testing.T) {
     //Create some test cases
     testCases := []struct {
         inputSize       int64
-        expectedSize    int64
+        num_slots       uint32
     }{
         {
             inputSize:      4096,
-            expectedSize:   int64(math.Ceil(float64(4096)/float64(metdataIntervalLength))),
+            num_slots:      uint32(math.Floor(float64( 4096 )/float64( metdataIntervalLength ))),
         },
         {
             inputSize:      8192,
-            expectedSize:   int64(math.Ceil(float64(8192)/float64(metdataIntervalLength))),
+            num_slots:      uint32(math.Floor(float64( 8192 )/float64( metdataIntervalLength ))),
         },
         {
             inputSize:      40960,
-            expectedSize:   int64(math.Ceil(float64(40960)/float64(metdataIntervalLength))),
+            num_slots:      uint32(math.Floor(float64( 40960 )/float64( metdataIntervalLength ))),
         },
         {
             inputSize:      15000,
             //Expected size will be the same as before as lookup file wont shrink
-            expectedSize:   int64(math.Ceil(float64(40960)/float64(metdataIntervalLength))),
+            num_slots:      uint32(math.Floor(float64( 40960 )/float64( metdataIntervalLength ))),
         },
     }
+    //min_req_size = int64(math.Ceil( math.Ceil(float64(metadata.num_slots)/8.0) / 4.0 ) * 4)
     //Create test directory and defer removing it
     createTestFolder(t)
     defer removeTestFolder(t)
     for _, v := range testCases {
         testMetadata := Metadata {}
-        err := testMetadata.createMetadataLookupFile("test/", v.inputSize)
+        testMetadata.num_slots = v.num_slots
+        //Calculate expected size from number of slots
+        expectedSize := int64(math.Ceil( math.Ceil(float64(v.num_slots)/8.0) / 4.0 ) * 4)
+        err := testMetadata.createMetadataLookupFile("test/")
         if err != nil {
             t.Errorf("Error %v when creating metadata lookup file", err)
         }
@@ -54,9 +58,9 @@ func TestCreationOfMetadataLookupFile(t *testing.T) {
             t.Errorf("Error %v when trying to get metadata lookup file stats", err)
         }
         //Compare the sizes
-        if temp_s := info.Size(); temp_s != v.expectedSize {
+        if temp_s := info.Size(); temp_s != expectedSize {
             t.Errorf("The size of metadata lookup file is %v, which is not the expected value of %v",
-            temp_s, v.expectedSize)
+            temp_s, expectedSize)
         }
     }
 }
@@ -68,30 +72,33 @@ func TestMetadataFileInitialization(t *testing.T) {
         //testCases
         testCases := []struct {
             inputSize       int64
-            padding_start   int64
-            final_size      int64
+            initial_slots   uint32
+            final_slots     uint32
         } {
             {
                 inputSize:      4096,
-                padding_start:  0,
-                final_size:     int64(math.Ceil(float64(4096)/float64(metdataIntervalLength))),
+                initial_slots:  0,
+                final_slots:     uint32(math.Floor(float64( 4096 )/float64( metdataIntervalLength ))),
             },
             {
                 inputSize:      10000,
                 //Previous size of the file
-                padding_start:  int64(math.Ceil(float64(4096)/float64(metdataIntervalLength))),
-                final_size:     int64(math.Ceil(float64(10000)/float64(metdataIntervalLength))),
+                initial_slots:  uint32(math.Floor(float64( 4096 )/float64( metdataIntervalLength ))),
+                final_slots:    uint32(math.Floor(float64( 10000 )/float64( metdataIntervalLength ))),
             },
             {
                 inputSize:      20000,
                 //Previous size of the file
-                padding_start:  int64(math.Ceil(float64(10000)/float64(metdataIntervalLength))),
-                final_size:     int64(math.Ceil(float64(20000)/float64(metdataIntervalLength))),
+                initial_slots:  uint32(math.Floor(float64( 10000 )/float64( metdataIntervalLength ))),
+                final_slots:    uint32(math.Floor(float64( 20000 )/float64( metdataIntervalLength ))),
             },
         }
         for _, v := range testCases {
             testMetadata := Metadata {}
-            err := testMetadata.createMetadataLookupFile("test/", v.inputSize)
+            testMetadata.num_slots = v.final_slots
+            padding_start := int64(math.Ceil( math.Ceil(float64(v.initial_slots)/8.0) / 4.0 ) * 4)
+            final_size := int64(math.Ceil( math.Ceil(float64(v.final_slots)/8.0) / 4.0 ) * 4)
+            err := testMetadata.createMetadataLookupFile("test/")
             if err != nil {
                 t.Errorf("Error %v when creating metadata lookup file", err)
             }
@@ -103,8 +110,8 @@ func TestMetadataFileInitialization(t *testing.T) {
             if err != nil {
                 t.Errorf("Error %v when trying to open metadata lookup file", err)
             }
-            file_data := make([]byte, v.final_size - v.padding_start)
-            _, err = f.ReadAt(file_data, v.padding_start)
+            file_data := make([]byte, final_size - padding_start)
+            _, err = f.ReadAt(file_data, padding_start)
             if err != nil {
                 t.Errorf("Errpr %v when reading from metadata lookup file", err)
             }
@@ -148,7 +155,8 @@ func TestIfMetadataLookupPreservesPreviousData(t *testing.T) {
     //Create metadata obj
     testMetadata := Metadata {}
     //This adds another 50 bytes to the file
-    testMetadata.createMetadataLookupFile("test/", 20000)
+    testMetadata.num_slots = uint32(math.Floor(float64( 20000 )/float64( metdataIntervalLength )))
+    testMetadata.createMetadataLookupFile("test/")
     //Close it
     err = testMetadata.lookup_file.Sync()
     err = testMetadata.lookup_file.Close()

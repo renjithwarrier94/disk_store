@@ -8,9 +8,12 @@ import (
     "fmt"
     "syscall"
     "encoding/gob"
+    "encoding/binary"
     "bytes"
     "github.com/pkg/errors"
     "math"
+    "unsafe"
+    "sync/atomic"
 )
 
 //The interval to leave for each slot data
@@ -29,11 +32,25 @@ const (
 type Metadata struct {
     data            []byte
     file            *os.File
-    currentSlot     *Slot
-    currentSlotNo   uint64
     lookup          []byte
     lookup_file     *os.File
     log             *logger.Logger
+    byteOrder       binary.ByteOrder
+    //lookup_size     uint64
+    //data_size       uint64
+    num_slots       uint32
+}
+
+//Get the byte order (big or little endian) of the current architecture
+func getByteOrder() binary.ByteOrder {
+    buf := [2]byte{}
+    *(*uint16)(unsafe.Pointer(&buf[0])) = uint16(0xABCD)
+
+    switch buf {
+        case [2]byte{0xCD, 0xAB}: return binary.LittleEndian
+        case [2]byte{0xAB, 0xCD}: return binary.BigEndian
+        default:                return nil
+    }
 }
 
 //Get the metadata type for the metadata file mapped to a byte slice
@@ -41,6 +58,7 @@ type Metadata struct {
 //If the size is less than 4096 bytes (4 KB), 4096 is used
 //If it is more than 4096, the nearest multiple of 4096 ie ceil(fileSize/4096)*4096 is used
 func GetMetadata(path string, fileSize int64) (*Metadata, error) {
+    var old_size int64
     metadata := Metadata{log: logger.GetLogger(true)}
     fileSize = int64(math.Ceil(float64(fileSize)/4096.0) * 4096)
     f, err := os.OpenFile(path + metadataFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
@@ -53,6 +71,7 @@ func GetMetadata(path string, fileSize int64) (*Metadata, error) {
     if err != nil {
         return nil, errors.Wrap(err, "Could not fetch the stats of metadata file")
     }
+    old_size = info.Size()
     if info.Size() < fileSize {
         err = f.Truncate(fileSize)
         if err != nil {
@@ -69,23 +88,85 @@ func GetMetadata(path string, fileSize int64) (*Metadata, error) {
     }
     //Add data to metadata object
     metadata.data = d
+    //Set num slots
+    metadata.num_slots = uint32(math.Floor(float64( fileSize )/float64( metdataIntervalLength )))
     //Create/Open the lookup file
-    err = metadata.createMetadataLookupFile(path, fileSize)
+    err = metadata.createMetadataLookupFile(path)
     if err != nil {
         return nil, errors.Wrap(err, "Could not successfully create the metadata lookup file")
     }
+    //Initialize with null values
+    metadata.initializeMetadataFile(old_size, fileSize)
+    //Set the data size
+   // metadata.data_size = fileSize
+    //Set byte order in metadata
+    metadata.byteOrder = getByteOrder()
+    if metadata.byteOrder == nil {
+        return nil, errors.Errorf("Could not fetch the byte order used in the current system architecture")
+    }
     return &metadata, nil
+}
+
+//Set initial bytes in metadata file
+func (m *Metadata) initializeMetadataFile(old_size, new_size int64) {
+    for i:=old_size; i<new_size; i++ {
+        m.data[i] = 0x00
+    }
+}
+
+//Check whether the slot is free for use and set its initial status byte
+func (m *Metadata) checkAndSetStatusByteBeforeWrite(slotNo uint64, checkExisting bool) ( bool, error ) {
+    current_slot_offset := slotNo * metdataIntervalLength
+    initial_status_byte := SLOT_IN_USE | SLOT_BEING_MODIFIED
+    //Get the 1st 4 bytes from the slot
+    first_4_bytes := make([]byte, 4)
+    n := copy(first_4_bytes, m.data[current_slot_offset: current_slot_offset + 4])
+    if n != 4 {
+        return false, errors.Errorf("Could not copy the first 4 bytes in the slot")
+    }
+    //Convert it to uint32
+    old_data := m.byteOrder.Uint32(first_4_bytes)
+    //Set the new status byte
+    first_4_bytes[0] = initial_status_byte
+    //Convert this to uint32
+    new_data := m.byteOrder.Uint32(first_4_bytes)
+    //Convert the slot start pointer to *uint32
+    var ptr *uint32 = (*uint32)(unsafe.Pointer(&m.data[current_slot_offset]))
+    if !checkExisting {
+        //Just write
+        res := atomic.CompareAndSwapUint32(ptr, old_data, new_data)
+        return res, nil
+    } else {
+        //Check whether the old status byte is 0x00 or slot in use
+        old_status_byte := m.data[current_slot_offset]
+        if old_status_byte == 0x00 || old_status_byte == initial_status_byte {
+            res := atomic.CompareAndSwapUint32(ptr, old_data, new_data)
+            return res, nil
+        }
+        return false, errors.Errorf("Initial status byte of the metadata slot is not right. (%v)", old_status_byte)
+    }
+}
+
+//Unset the status byte of metadata slot
+func (m *Metadata) checkAndUnsetStatusByteAfterWrite(slotNo uint64) {
+    current_slot_offset := slotNo * metdataIntervalLength
+    //Get the current staatus byte
+    old_status_byte := m.data[current_slot_offset]
+    new_status_byte := old_status_byte & ^old_status_byte
+    m.data[current_slot_offset] = new_status_byte
 }
 
 //The slot is written at the location slotNo*metdataIntervalLength
 //The first byte is the status byte. It is the ORed value of the SLOT_* constants (whichever applicable)
 //Rest of it is the slot data
-func (m Metadata) WriteSlot(s Slot, slotNo uint64) error {
+func (m *Metadata) WriteSlot(s Slot, slotNo uint64) error {
     writeOffset := slotNo * metdataIntervalLength
-    //TODO: MAKE THE OPERATION ATOMIC
     //Set the status byte to show the slot is in use and is being modified
-    statusByte := SLOT_IN_USE | SLOT_BEING_MODIFIED
-    m.data[writeOffset] = statusByte
+    //TODO: retries when it returns false
+    res, _ := m.checkAndSetStatusByteBeforeWrite(slotNo, true)
+    if !res {
+        return errors.Errorf("Could not write status byte as result is %v ", res)
+    }
 
     writeSlice := m.data[writeOffset+1:writeOffset+metdataIntervalLength]
     var buffer bytes.Buffer
@@ -101,8 +182,7 @@ func (m Metadata) WriteSlot(s Slot, slotNo uint64) error {
     }
 
     //Set the status byte to show that the slot is in use only
-    statusByte = SLOT_IN_USE
-    m.data[writeOffset] = statusByte
+    m.checkAndUnsetStatusByteAfterWrite(slotNo)
     return nil
 }
 

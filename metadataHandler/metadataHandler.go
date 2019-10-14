@@ -16,6 +16,23 @@ import (
     "sync/atomic"
 )
 
+type MetadataSlotInUse struct {
+    slot_no     uint32
+}
+
+func (s MetadataSlotInUse) Error() string {
+    return fmt.Sprintf("Slot %v is in use. Plese try again", s.slot_no)
+}
+
+type MetadataWriteRetryError struct {
+    num_retries     int
+    slot_no         uint32
+}
+
+func (r MetadataWriteRetryError) Error() string {
+    return fmt.Sprintf("Write tried %v times for metadata slot %v and failed", r.num_retries, r.slot_no)
+}
+
 //The interval to leave for each slot data
 const metdataIntervalLength = 200
 //The name of the metadata file. Its stored in the given path + fileName
@@ -115,7 +132,7 @@ func (m *Metadata) initializeMetadataFile(old_size, new_size int64) {
 }
 
 //Check whether the slot is free for use and set its initial status byte
-func (m *Metadata) checkAndSetStatusByteBeforeWrite(slotNo uint64, checkExisting bool) ( bool, error ) {
+func (m *Metadata) checkAndSetStatusByteBeforeWrite(slotNo uint32, checkExisting bool) ( bool, error ) {
     current_slot_offset := slotNo * metdataIntervalLength
     initial_status_byte := SLOT_IN_USE | SLOT_BEING_MODIFIED
     //Get the 1st 4 bytes from the slot
@@ -126,6 +143,8 @@ func (m *Metadata) checkAndSetStatusByteBeforeWrite(slotNo uint64, checkExisting
     }
     //Convert it to uint32
     old_data := m.byteOrder.Uint32(first_4_bytes)
+    //m.log.Infof("Current slot offset: %v", current_slot_offset)
+    //m.log.Infof("Old value: %v", first_4_bytes)
     //Set the new status byte
     first_4_bytes[0] = initial_status_byte
     //Convert this to uint32
@@ -135,43 +154,69 @@ func (m *Metadata) checkAndSetStatusByteBeforeWrite(slotNo uint64, checkExisting
     if !checkExisting {
         //Just write
         res := atomic.CompareAndSwapUint32(ptr, old_data, new_data)
+        //m.log.Infof("1. Result of write: %v", res)
         return res, nil
     } else {
-        //Check whether the old status byte is 0x00 or slot in use
+        //Check whether the old status byte is 0x00 or not slot being modified
         old_status_byte := m.data[current_slot_offset]
-        if old_status_byte == 0x00 || old_status_byte == initial_status_byte {
+        if old_status_byte == 0x00 || old_status_byte & SLOT_BEING_MODIFIED == 0x00 {
             res := atomic.CompareAndSwapUint32(ptr, old_data, new_data)
+            //m.log.Infof("2. Result of write: %v", res)
             return res, nil
         }
-        return false, errors.Errorf("Initial status byte of the metadata slot is not right. (%v)", old_status_byte)
+        return false, MetadataSlotInUse {slot_no: slotNo}
     }
 }
 
 //Unset the status byte of metadata slot
-func (m *Metadata) checkAndUnsetStatusByteAfterWrite(slotNo uint64) {
+func (m *Metadata) checkAndUnsetStatusByteAfterWrite(slotNo uint32) {
     current_slot_offset := slotNo * metdataIntervalLength
     //Get the current staatus byte
     old_status_byte := m.data[current_slot_offset]
-    new_status_byte := old_status_byte & ^old_status_byte
+    new_status_byte := old_status_byte & ^SLOT_BEING_MODIFIED
     m.data[current_slot_offset] = new_status_byte
 }
 
 //The slot is written at the location slotNo*metdataIntervalLength
 //The first byte is the status byte. It is the ORed value of the SLOT_* constants (whichever applicable)
 //Rest of it is the slot data
-func (m *Metadata) WriteSlot(s Slot, slotNo uint64) error {
+func (m *Metadata) WriteSlot(s Slot, slotNo uint32) error {
     writeOffset := slotNo * metdataIntervalLength
     //Set the status byte to show the slot is in use and is being modified
     //TODO: retries when it returns false
-    res, _ := m.checkAndSetStatusByteBeforeWrite(slotNo, true)
+    res, err := m.checkAndSetStatusByteBeforeWrite(slotNo, true)
     if !res {
-        return errors.Errorf("Could not write status byte as result is %v ", res)
+        //If error is nil, data changed underneath the function, keep trying again
+        if err == nil {
+            var num_retries int
+            for num_retries=5; num_retries >=0; num_retries-- {
+                var res bool
+                res, err = m.checkAndSetStatusByteBeforeWrite(slotNo, true)
+                //If the write was successful or some error occured, no point in continuing
+                if res || err != nil {
+                    break
+                }
+            }
+            //Retries Exceeded
+            return MetadataWriteRetryError {num_retries: 5, slot_no: slotNo}
+        }
+        //Control comes here either if the write is successful during retries or during retries, we got an error
+        if err != nil {
+            //There was an error
+            //2 possibilites: 1. SlotInUse - pass it along. Else deal with it
+            switch err.(type) {
+                case MetadataSlotInUse: return err
+                //SOme other error. Deal with it
+                default:        return errors.Wrap(err, "Could not write status byte before writing metadata")
+            }
+        }
     }
 
+    //Status byte successfully written. So continue writng the slice
     writeSlice := m.data[writeOffset+1:writeOffset+metdataIntervalLength]
     var buffer bytes.Buffer
     encoder := gob.NewEncoder(&buffer)
-    err := encoder.Encode(s)
+    err = encoder.Encode(s)
     if err != nil {
         return errors.Wrap(err, "Could not successfully encode slice")
     }
@@ -181,7 +226,7 @@ func (m *Metadata) WriteSlot(s Slot, slotNo uint64) error {
         return errors.Errorf(fmt.Sprintf("Could not write the entire metadata. Could only write %v of %v bytes", n, tot))
     }
 
-    //Set the status byte to show that the slot is in use only
+    //Set the status byte to show that the slot is not being modified
     m.checkAndUnsetStatusByteAfterWrite(slotNo)
     return nil
 }
@@ -208,7 +253,7 @@ func (m *Metadata) CloseFile() error {
     return nil
 }
 
-func (m Metadata) GetSlot(slotno uint64) (Slot, error) {
+func (m Metadata) GetSlot(slotno uint32) (Slot, error) {
     readOffset := slotno * metdataIntervalLength
     //1st Byte is the status byte. Read from the next byte for slot data
     readSlice := m.data[readOffset+1: readOffset+metdataIntervalLength]

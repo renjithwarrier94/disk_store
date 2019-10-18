@@ -179,3 +179,169 @@ func TestIfMetadataLookupPreservesPreviousData(t *testing.T) {
         t.Errorf("The existing data in metadata lookup changed after intialization")
     }
 }
+
+func markOpenSlotsInLookup(metadata *Metadata, openSlots []uint32) {
+    //Calculate the byte position of each open slot
+    byte_offsets := make(map[uint32][]uint32)
+    for _, slot := range openSlots {
+        byte_offset := uint32(math.Floor(float64(slot)/8.0))
+        if _, ok := byte_offsets[byte_offset]; !ok {
+            byte_offsets[byte_offset] = []uint32{}
+        }
+        byte_offsets[byte_offset] = append(byte_offsets[byte_offset], slot)
+    }
+    max_byte := uint32(math.Floor(float64(metadata.num_slots)/8.0))
+    //Iterate though the lookup file and set all bits except those belonging to openSlots to 1 
+    for i:=uint32(0); i<=max_byte; i++ {
+        //Set it to all 1s anyway
+        metadata.lookup[i] = 0xff
+       //Check if the byte offsets contains the byte
+       if slots, ok := byte_offsets[i]; ok {
+            //If it does,
+           //Loop through all the slots applicable in this byte
+           for _, j := range slots {
+               //Get the bit offset
+                bit_offset := j % 8
+                //Get the appropritate bit occupied value
+                required_bit := SLOT_OCCUPIED_VALUES[bit_offset]
+                metadata.lookup[i] = metadata.lookup[i] & ^required_bit
+            }
+        }
+    }
+}
+
+func listContains(test_list []uint32, test_num uint32) (bool, int) {
+    for i, v:= range test_list {
+        if v == test_num {
+            return true, i
+        }
+    }
+    return false, 0
+}
+
+func listRemove(test_list []uint32, index int) []uint32 {
+    return append(test_list[:index], test_list[index+1:]...)
+}
+
+func testIfSlotIsReserved(metadata *Metadata, slot_no uint32) bool {
+    byte_offset := uint32(math.Floor(float64(slot_no)/8.0))
+    bit_offset := slot_no % 8
+    return metadata.lookup[byte_offset] & SLOT_OCCUPIED_VALUES[bit_offset] > 0x00
+}
+
+func testIfSlotsAreFree(metadata *Metadata, free_slots []uint32) bool {
+    for _, v := range free_slots {
+        byte_offset := uint32(math.Floor(float64(v) / 8.0))
+        bit_offset := v % 8
+        if metadata.lookup[byte_offset] & SLOT_OCCUPIED_VALUES[bit_offset] != 0x00 {
+            return false
+        }
+    }
+    return true
+}
+
+func TestAllocationOfAFreeSlot(t *testing.T) {
+    //Create test folder and defer deleting it
+    createTestFolder(t)
+    defer removeTestFolder(t)
+    //Create a slice of open spaces
+    openSlots := []uint32{2, 4, 8, 10, 12, 14}
+    //Create the number of times to test it
+    numTests := 4
+    //create metadata
+    metadata, err := GetMetadata("test/", 4096)
+    if err != nil {
+        t.Errorf("Error %v when trying to obtain metadata", err)
+    }
+    //Mark all the free slots
+    markOpenSlotsInLookup(metadata, openSlots)
+    //Repeat test for n times
+    for i:=0; i<numTests; i++ {
+        //Get an open slot
+        slot_no, err := metadata.getOpenSlot()
+        if err != nil {
+            t.Errorf("Error %v when reserving a slot", err)
+        }
+        //Check if the slot was actually free
+        res, loc := listContains(openSlots, slot_no)
+        if !res {
+            t.Errorf("%v returned as free slot when the only free slots available are %v. Try: %v",
+            slot_no, openSlots, i)
+        }
+        openSlots = listRemove(openSlots, loc)
+        //Check if the bit is set to occupied
+        if !testIfSlotIsReserved(metadata, slot_no) {
+            t.Errorf("The bit in lookup is not set after alloting slot")
+        }
+        if !testIfSlotsAreFree(metadata, openSlots) {
+            t.Errorf("The remaining open slots are not showing open")
+        }
+    }
+}
+
+func TestOutOfSlotsErrorWhenNoSlotsAvailable(t *testing.T) {
+    //Create test folder and defer deleting it
+    createTestFolder(t)
+    defer removeTestFolder(t)
+    //Create an empty slice of open slots
+    openSlots := []uint32{}
+    //Create metadata
+    metadata, err := GetMetadata("test/", 4096)
+    if err != nil {
+        t.Errorf("Error %v when trying to obtain metadata", err)
+    }
+    //Mark all the free (none) slots
+    markOpenSlotsInLookup(metadata, openSlots)
+    //Try to get an open slot
+    _, err = metadata.getOpenSlot()
+    //If err is not nil, test failed
+    if err == nil {
+        t.Errorf("No error returned when all the slots are used up")
+    }
+    _, ok := err.(metadataOutOfSlots)
+    if !ok {
+        t.Errorf("Error %v returned instead of metadataOutOfSlots", err)
+    }
+}
+
+func getOpenSlotFromMetadataa(metadata *Metadata, ch chan uint32, t *testing.T) {
+    slot_no, err := metadata.getOpenSlot()
+    if err != nil {
+        t.Errorf("Error %v when trying to reserve a slot", err)
+    }
+    ch <- slot_no
+}
+
+//TestAtomicAllocation - 
+    //Multiple goroutines competing to get slots
+func TestAtomicAllocationOfASlot(t *testing.T) {
+    //Create test folder and defer its deletion
+    createTestFolder(t)
+    defer removeTestFolder(t)
+    //Create a slice of open slots
+    openSlots := []uint32{2, 4, 6, 8, 9, 10, 11, 12, 13, 14, 15}
+    //Number of go routines to run
+    num_go_routines := len(openSlots) 
+    ch := make(chan uint32, num_go_routines)
+    //Create metadata
+    metadata, err := GetMetadata("test/", 4096)
+    if err != nil {
+        t.Errorf("Error %v when trying to create metadata", err)
+    }
+    //Mark all the free slots
+    markOpenSlotsInLookup(metadata, openSlots)
+    //Create goroutines to check 
+    for i:=0; i<num_go_routines; i++ {
+        go getOpenSlotFromMetadataa(metadata, ch, t)
+    }
+    //Get all the slot values and check if its uinique
+    for i:=0; i<num_go_routines; i++ {
+        slot_no := <-ch
+        res, loc := listContains(openSlots, slot_no)
+        if !res {
+            t.Errorf("One of the go routines returned %v when the only slots available were %v",
+        slot_no, openSlots)
+        }
+        openSlots = listRemove(openSlots, loc)
+    }
+}

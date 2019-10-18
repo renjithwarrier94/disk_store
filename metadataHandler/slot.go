@@ -10,15 +10,45 @@ import (
 //type will not be more than 150 bytes. So each slot will be in an offset that is a multiple of 200 bytes
 type Slot struct {
     dataStoreSlot       uint64
-    sizeOfData          uint64
-    slotNo              uint64
+    sizeOfData          uint32
+    slotNo              uint32
 }
 
 //Set data in a slot
-func (s *Slot) SetData(dsSlot uint64, sod uint64, sno uint64) {
+func (s *Slot) SetData(dsSlot uint64, sod uint32, sno uint32) {
     s.dataStoreSlot = dsSlot
     s.sizeOfData = sod
     s.slotNo = sno
+}
+
+//Set dataStoreSlotNum
+func (s *Slot) SetDataStoreSlotNum (dsSlot uint64) {
+    s.dataStoreSlot = dsSlot
+}
+
+//Get dataStoreSlotNum
+func (s *Slot) GetDataStoreSlotNum () uint64 {
+    return s.dataStoreSlot
+}
+
+//Set sizeOfData
+func (s *Slot) SetSizeOfData (sod uint32) {
+    s.sizeOfData = sod
+}
+
+//Get sizeOfData
+func (s *Slot) GetSizeOfData () uint32 {
+    return s.sizeOfData
+}
+
+//Set slotNo
+func (s *Slot) SetSlotNo (sno uint32) {
+    s.slotNo = sno
+}
+
+//Get slotNo
+func (s *Slot) GetSlotNo () uint32 {
+    return s.slotNo
 }
 
 //Gob Encoder for Slot

@@ -39,6 +39,8 @@ const metdataIntervalLength = 200
 const metadataFileName = "metadata.ds"
 //The name of the metadata lookup file.
 const metadataLookupFileName = "metadata_lookup.ds"
+//Initial size of the file and the step size to increase it in
+const size_step = 51200
 //All the status byte flags
 const (
     SLOT_IN_USE                 = byte(0x01)
@@ -77,7 +79,8 @@ func getByteOrder() binary.ByteOrder {
 func GetMetadata(path string, fileSize int64) (*Metadata, error) {
     var old_size int64
     metadata := Metadata{log: logger.GetLogger(true)}
-    fileSize = int64(math.Ceil(float64(fileSize)/4096.0) * 4096)
+    //fileSize = int64(math.Ceil(float64(fileSize)/4096.0) * 4096)
+    fileSize = int64(math.Ceil(float64(fileSize)/float64(size_step)) * size_step)
     f, err := os.OpenFile(path + metadataFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
     if err != nil {
         return nil, errors.Wrap(err, "Could not open/create the metadata file")
@@ -229,6 +232,35 @@ func (m *Metadata) WriteSlot(s Slot, slotNo uint32) error {
     //Set the status byte to show that the slot is not being modified
     m.checkAndUnsetStatusByteAfterWrite(slotNo)
     return nil
+}
+
+//Write a new slot
+//Gets an open slot from lookupfile, and writes to it
+//Finally if everything goes fine, returns the slot number
+func (m *Metadata) CreateSlot(s Slot) (uint32, error) {
+    //Get a slot
+    slot_no, err := m.getOpenSlot()
+    if err != nil {
+        switch err.(type) {
+        //TODO: Trigger file extend
+        case metadataOutOfSlots                 : return 0, errors.Wrap(err, "Out of slots. Should exptend the file")
+        //TODO: Try again
+        case metadataLookupNumRetriesExceeded   : return 0, errors.Wrap(err, "Num retries exceeded. Try again")
+        default                                 : return 0, errors.Wrap(err, "Could not allocate a free slot")
+        }
+    }
+    //Set the slot number in slot
+    s.SetSlotNo(slot_no)
+    //Set the status byte to 0x00
+    slot_offset := slot_no * metdataIntervalLength
+    m.data[slot_offset] = 0x00
+    //Write the slot
+    err = m.WriteSlot(s, slot_no)
+    if err != nil {
+        return 0, errors.Wrap(err, "Error when trying to write data into slot")
+    }
+    //Successfully written. Return the slot number
+    return slot_no, nil
 }
 
 func (m *Metadata) CloseFile() error {

@@ -19,8 +19,9 @@ func removeTestFolder(t *testing.T) {
 }
 
 func TestCreateFileOfGivenSize(t *testing.T) {
-    testSizes := []int64{75, 4097, 8193, 20000}
-    expectedSizes := []int64{4096, 8192, 12288, 20480}
+    testSizes := []int64{75, 4097, 8193, 20000, 80000, 110000}
+    //expectedSizes := []int64{4096, 8192, 12288, 20480}
+    expectedSizes := []int64{51200, 51200, 51200, 51200, 102400, 153600}
     //Create a directory and defer removing it
     /*
     err := os.Mkdir("test", 0777)

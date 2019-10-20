@@ -14,21 +14,32 @@ func TestCreationOfMetadataLookupFile(t *testing.T) {
         num_slots       uint32
     }{
         {
-            inputSize:      4096,
-            num_slots:      uint32(math.Floor(float64( 4096 )/float64( metdataIntervalLength ))),
+            //inputSize:      4096,
+            //num_slots:      uint32(math.Floor(float64( 4096 )/float64( metdataIntervalLength ))),
+            //Min size is 50KB (51200 bytes)
+            inputSize:      size_step - 3000,
+            num_slots:      uint32(math.Floor(float64( size_step )/float64( metdataIntervalLength ))),
         },
         {
-            inputSize:      8192,
-            num_slots:      uint32(math.Floor(float64( 8192 )/float64( metdataIntervalLength ))),
+            //inputSize:      8192,
+            //num_slots:      uint32(math.Floor(float64( 8192 )/float64( metdataIntervalLength ))),
+            //The next step is 2*size_step
+            inputSize:      size_step + 2000,
+            num_slots:      uint32(math.Floor(float64( 2*size_step )/float64( metdataIntervalLength ))),
         },
         {
-            inputSize:      40960,
-            num_slots:      uint32(math.Floor(float64( 40960 )/float64( metdataIntervalLength ))),
+            //inputSize:      40960,
+            //num_slots:      uint32(math.Floor(float64( 40960 )/float64( metdataIntervalLength ))),
+            //Next is 3*size_step
+            inputSize:      2*size_step + 500,
+            num_slots:      uint32(math.Floor(float64( 3*size_step )/float64( metdataIntervalLength ))),
         },
         {
-            inputSize:      15000,
+            //inputSize:      15000,
+            //num_slots:      uint32(math.Floor(float64( 40960 )/float64( metdataIntervalLength ))),
+            inputSize:      size_step - 2000,
             //Expected size will be the same as before as lookup file wont shrink
-            num_slots:      uint32(math.Floor(float64( 40960 )/float64( metdataIntervalLength ))),
+            num_slots:      uint32(math.Floor(float64( 3*size_step )/float64( metdataIntervalLength ))),
         },
     }
     //min_req_size = int64(math.Ceil( math.Ceil(float64(metadata.num_slots)/8.0) / 4.0 ) * 4)
@@ -192,7 +203,7 @@ func markOpenSlotsInLookup(metadata *Metadata, openSlots []uint32) {
     }
     max_byte := uint32(math.Floor(float64(metadata.num_slots)/8.0))
     //Iterate though the lookup file and set all bits except those belonging to openSlots to 1 
-    for i:=uint32(0); i<=max_byte; i++ {
+    for i:=uint32(0); i<max_byte; i++ {
         //Set it to all 1s anyway
         metadata.lookup[i] = 0xff
        //Check if the byte offsets contains the byte

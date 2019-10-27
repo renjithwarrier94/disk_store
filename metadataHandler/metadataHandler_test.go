@@ -348,3 +348,31 @@ func TestCreationOfMetadataLockFileWhenItAlreadyExistsInLockedState(t *testing.T
         t.Errorf("Lock file in unlocked state does not exist")
     }
 }
+
+//Test to see if multiple creations of metadata concurrently doesn't end up in error or creating multiple lock files
+
+func createMetadataAndTestForErrors(t *testing.T, ch chan bool) {
+    _, err := GetMetadata("test/", 10000)
+    if err != nil {
+        t.Errorf("Error %v when creating metadata object", err)
+    }
+    ch <- true
+}
+
+func TestCreationOfMetadataLockFileWhenConcurrentCreationOfMetadataTakesPlace(t *testing.T) {
+    //Create a test folder and defer its deletion
+    createTestFolder(t)
+    defer removeTestFolder(t)
+    //Number of goroutines to create
+    num_routines := 10
+    //Create a chan with enough size to let the goroutines know that the job is done
+    ch := make(chan bool, num_routines)
+    for i:=1; i<=num_routines; i++ {
+        go createMetadataAndTestForErrors(t, ch)
+    }
+    //Wait for completion
+    for i:=1; i<=num_routines; i++ {
+        _ = <-ch
+    }
+}
+

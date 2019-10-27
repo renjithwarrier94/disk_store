@@ -41,6 +41,12 @@ const metadataFileName = "metadata.ds"
 const metadataLookupFileName = "metadata_lookup.ds"
 //Initial size of the file and the step size to increase it in
 const size_step = 51200
+//The name of lock file for metadata resize
+const lock_file_name = "m"
+//The suffix of lock file when unlocked
+const lock_file_locked_suffix = "unlocked"
+//The suffix of lock file when locked
+const lock_file_unlocked_suffix = "locked"
 //All the status byte flags
 const (
     SLOT_IN_USE                 = byte(0x01)
@@ -49,15 +55,13 @@ const (
 )
 
 type Metadata struct {
-    data            []byte
-    file            *os.File
-    lookup          []byte
-    lookup_file     *os.File
-    log             *logger.Logger
-    byteOrder       binary.ByteOrder
-    //lookup_size     uint64
-    //data_size       uint64
-    num_slots       uint32
+    data                        []byte
+    file                        *os.File
+    lookup                      []byte
+    lookup_file                 *os.File
+    log                         *logger.Logger
+    byteOrder                   binary.ByteOrder
+    num_slots                   uint32
 }
 
 //Get the byte order (big or little endian) of the current architecture
@@ -70,6 +74,26 @@ func getByteOrder() binary.ByteOrder {
         case [2]byte{0xAB, 0xCD}: return binary.BigEndian
         default:                return nil
     }
+}
+
+//Check the path to see whether the locked or unlocked version of lock file.
+//If neither exists, create a new one in unlocked state
+func checkAndCreateLockFile(path string) error {
+    //Check if it exists in unlocked state
+    _, err := os.Stat(path + "/" + lock_file_name + "." + lock_file_unlocked_suffix)
+    if os.IsNotExist(err) {
+        //Check if it exists in locked state
+        _, err = os.Stat(path + "/" + lock_file_name + "." + lock_file_locked_suffix)
+        if os.IsNotExist(err) {
+            //Both doesnt exist. So create it
+            _, err = os.Create(path + "/" + lock_file_name + "." + lock_file_unlocked_suffix)
+            if err != nil {
+                return errors.Wrap(err, "Could not create metadata lock file")
+            }
+        }
+    }
+    //It exists in some state (locked or unlocked). Nothing to do here
+    return nil
 }
 
 //Get the metadata type for the metadata file mapped to a byte slice
@@ -123,6 +147,11 @@ func GetMetadata(path string, fileSize int64) (*Metadata, error) {
     metadata.byteOrder = getByteOrder()
     if metadata.byteOrder == nil {
         return nil, errors.Errorf("Could not fetch the byte order used in the current system architecture")
+    }
+    //Set up lockfile
+    err = checkAndCreateLockFile(path)
+    if err != nil {
+        return nil, errors.Wrap(err, "Error when trying to create metadata lock file")
     }
     return &metadata, nil
 }
@@ -298,3 +327,16 @@ func (m Metadata) GetSlot(slotno uint32) (Slot, error) {
     }
     return decodedSlot, nil
 }
+
+/*
+func (m *Metadata) resizeFile() error {
+    //Get current size (to check if some other process or routine has resized the file)
+    info, err := m.file.Stat()
+    if err != nil {
+        return errors.Wrap(err, "Could not get info of the metadata file")
+    }
+    actual_current_size := info.Size()
+    //Get the size according to the number of slots we think it has
+    calculated_current_size := m.num_slots * metdataIntervalLength
+}
+*/

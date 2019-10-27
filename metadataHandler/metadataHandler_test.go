@@ -288,3 +288,63 @@ func TestWritesAvalibaleAcrossFileDescriptors(t *testing.T) {
     }
     //os.RemoveAll("test")
 }
+
+//Test to see if it creates a lock file
+func TestCreationOfMetadataLockFile(t *testing.T) {
+    //Create a test folder and defer its deletion
+    createTestFolder(t)
+    defer removeTestFolder(t)
+    _, err := GetMetadata("test/", 10000)
+    if err != nil {
+        t.Errorf("Error %v when creating metadata", err)
+    }
+    //Check whether the lock file exists in unlocked state
+    _, err = os.Stat("test/" + lock_file_name + "." + lock_file_unlocked_suffix)
+    if os.IsNotExist(err) {
+        t.Errorf("Lock file in unlocked state does not exist")
+    }
+}
+
+//Test to see if code handles the case where metadata file already exists in unlocked state
+func TestCreationOfMetadataLockFileWhenItAlreadyExistsInUnlockedState(t *testing.T) {
+    //Create a test folder and defer its deletion
+    createTestFolder(t)
+    defer removeTestFolder(t)
+    //Create a metadata file in unlocked state
+    _, err := os.Create("test/" + lock_file_name + "." + lock_file_unlocked_suffix)
+    if err != nil {
+        t.Errorf("Error %v when trying to create a test metadata lock file", err)
+    }
+    //Try creating a metadata object
+    _, err = GetMetadata("test/", 10000)
+    if err != nil {
+        t.Errorf("Error %v when trying to create a metadata object", err)
+    }
+    //Test if file is there
+    _, err = os.Stat("test/" + lock_file_name + "." + lock_file_unlocked_suffix)
+    if os.IsNotExist(err) {
+        t.Errorf("Lock file in unlocked state does not exist")
+    }
+}
+
+//Test to see if code handles the case where metadata file already exists in locked state
+func TestCreationOfMetadataLockFileWhenItAlreadyExistsInLockedState(t *testing.T) {
+    //Create a test folder and defer its deletion
+    createTestFolder(t)
+    defer removeTestFolder(t)
+    //Create a metadata file in unlocked state
+    _, err := os.Create("test/" + lock_file_name + "." + lock_file_locked_suffix)
+    if err != nil {
+        t.Errorf("Error %v when trying to create a test metadata lock file", err)
+    }
+    //Try creating a metadata object
+    _, err = GetMetadata("test/", 10000)
+    if err != nil {
+        t.Errorf("Error %v when trying to create a metadata object", err)
+    }
+    //Test if file is there
+    _, err = os.Stat("test/" + lock_file_name + "." + lock_file_locked_suffix)
+    if os.IsNotExist(err) {
+        t.Errorf("Lock file in unlocked state does not exist")
+    }
+}
